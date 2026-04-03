@@ -23,7 +23,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 @Getter
 @EntityListeners(AuditingEntityListener.class)
 @JsonIgnoreProperties({"hibernateLazyInitializer", "handler"})
-public class WorkflowRuleBinding extends Auditable {
+public class WorkflowRuleAndType extends Auditable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)

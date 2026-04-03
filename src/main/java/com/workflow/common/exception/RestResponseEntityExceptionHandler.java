@@ -100,7 +100,7 @@ public class RestResponseEntityExceptionHandler {
     }
 
     @ExceptionHandler({BaseErrorException.class})
-    public ResponseEntity<GeneralError> handleWalletErrorException(final BaseErrorException e, final WebRequest request) {
+    public ResponseEntity<GeneralError> handleBaseErrorException(final BaseErrorException e, final WebRequest request) {
         if (e.getErrorInfos() == null) {
             return toResponseEntity(e, request, HttpStatus.INTERNAL_SERVER_ERROR, ErrorCode.EXTERNAL_SERVER_ERROR_CODE);
         } else {

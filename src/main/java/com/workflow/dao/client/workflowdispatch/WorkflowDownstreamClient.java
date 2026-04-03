@@ -14,7 +14,7 @@ public interface WorkflowDownstreamClient {
     @PostMapping(consumes = "application/json", produces = "application/json")
     void postWorkflowDispatch(
             URI uri,
-            @RequestHeader(HTTPConstant.X_E2E_TRUST_TOKEN) String token,
+            @RequestHeader(HTTPConstant.OUTBOUND_TRUST_TOKEN_HEADER) String token,
             @RequestHeader(HTTPConstant.REQUEST_CORRELATION) String requestId,
             @RequestParam String confirmationNumber,
             @RequestParam String applicationName,

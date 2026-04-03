@@ -6,12 +6,10 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.HashMap;
 
-
-
 @Data
 @Configuration
-@ConfigurationProperties(prefix = "dsp.sapi.root")
-public class DspConfig {
+@ConfigurationProperties(prefix = "trust.sapi.root")
+public class TrustSapiUriProperties {
 
-    HashMap<String,String> uriMap;
+    private HashMap<String, String> uriMap;
 }

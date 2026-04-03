@@ -28,22 +28,22 @@ class ToolsTest {
                 {
                     "paymentRail": "GT",
                     "debitAccount": {
-                        "countryCode": "HK",
-                        "groupMember": "HBAP",
+                        "countryCode": "GB",
+                        "groupMember": "DEMO_ORG",
                         "accountNumber": "001013770833",
                         "currencyCode": "USD",
                         "formattedAccount": "001-013770-833",
-                        "name": "Novo Amor",
+                        "name": "Demo User",
                         "productType": "SAV~~DDA~~SSV"
                     },
                     "creditPayeeId": "",
                     "creditAccount": {
-                        "countryCode": "HK",
-                        "groupMember": "HBAP",
+                        "countryCode": "GB",
+                        "groupMember": "DEMO_ORG",
                         "currencyCode": "GBP",
                         "accountNumber": "001013770833",
                         "identifierCode": "",
-                        "name": "Novo Amor"
+                        "name": "Demo User"
                     },
                     "debitAmount": 10.30,
                     "creditAmount": 8.05,

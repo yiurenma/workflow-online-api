@@ -8,9 +8,9 @@ import com.workflow.common.configuration.JacksonConfiguration;
 import com.workflow.common.object.WorkflowRunStatus;
 import com.workflow.common.object.WorkflowRuntimePayload;
 import com.workflow.common.object.security.SecureData;
-import com.workflow.dao.repository.WorkflowEntityLink;
+import com.workflow.dao.repository.WorkflowEntityAndLinkingIdMapping;
 import com.workflow.dao.repository.WorkflowRecord;
-import com.workflow.dao.repository.WorkflowRuleBinding;
+import com.workflow.dao.repository.WorkflowRuleAndType;
 import com.workflow.service.detail.WorkflowRuntimePayloadFactory;
 import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.JsonPath;
@@ -37,7 +37,7 @@ import static com.workflow.common.object.Type.*;
 public class WorkflowDispatchService {
 
     @Autowired
-    WorkflowRuleBindingService workflowRuleBindingService;
+    WorkflowRuleAndTypeService workflowRuleAndTypeService;
     @Autowired
     WorkflowRuntimePayloadFactory workflowRuntimePayloadFactory;
     @Autowired
@@ -53,20 +53,20 @@ public class WorkflowDispatchService {
     public void dispatchFromPersistedRecord(WorkflowRecord executionRecord,
                                             WorkflowRuntimePayload runtimePayload)
             throws IOException, ClassNotFoundException {
-        List<WorkflowEntityLink> entityLinks =
-                workflowRuleBindingService.getWorkflowEntityLink(runtimePayload.getWorkflowEntitySetting().getId());
+        List<WorkflowEntityAndLinkingIdMapping> entityLinks =
+                workflowRuleAndTypeService.findEntityLinkingMappingsBySettingId(runtimePayload.getWorkflowEntitySetting().getId());
         log.info("There are {} steps for {}",
                 entityLinks.size(),
                 runtimePayload.getWorkflowEntitySetting().getApplicationName()
         );
 
-        MultivaluedMap<Integer, List<WorkflowRuleBinding>> outboundBindingsByOrder = new MultivaluedHashMap<>();
-        MultivaluedMap<Integer, List<WorkflowRuleBinding>> enrichmentBindingsByOrder = new MultivaluedHashMap<>();
+        MultivaluedMap<Integer, List<WorkflowRuleAndType>> outboundBindingsByOrder = new MultivaluedHashMap<>();
+        MultivaluedMap<Integer, List<WorkflowRuleAndType>> enrichmentBindingsByOrder = new MultivaluedHashMap<>();
         for (int i = 0; i < entityLinks.size(); i++) {
-            List<WorkflowRuleBinding> bindings =
-                    workflowRuleBindingService.getWorkflowRuleBindingLinkingId(entityLinks.get(i).getLinkingId());
+            List<WorkflowRuleAndType> bindings =
+                    workflowRuleAndTypeService.findRuleAndTypesByLinkingId(entityLinks.get(i).getLinkingId());
             if (!bindings.isEmpty()) {
-                WorkflowRuleBinding first = bindings.get(0);
+                WorkflowRuleAndType first = bindings.get(0);
                 if (CONSUMER.toString().equals(first.getWorkflowType().getType())
                         || IFELSE.toString().equals(first.getWorkflowType().getType())
                         || FUNCTION.toString().equalsIgnoreCase(first.getWorkflowType().getType())
@@ -83,11 +83,11 @@ public class WorkflowDispatchService {
             if (enrichInformationAsync) {
                 runtimePayload = workflowRuntimePayloadFactory
                         .getInstance(runtimePayload.getWorkflowEntitySetting().getApplicationName())
-                        .getTransactionDetails(runtimePayload, enrichmentBindingsByOrder);
+                        .getRuntimePayloadWithAsyncEnrichment(runtimePayload, enrichmentBindingsByOrder);
             } else {
                 runtimePayload = workflowRuntimePayloadFactory
                         .getInstance(runtimePayload.getWorkflowEntitySetting().getApplicationName())
-                        .getTransactionDetailsWithoutAsync(runtimePayload, enrichmentBindingsByOrder);
+                        .getRuntimePayloadWithSyncEnrichment(runtimePayload, enrichmentBindingsByOrder);
             }
         } catch (Exception e) {
             log.error("exception when gather information : {}", e.toString());
@@ -113,15 +113,15 @@ public class WorkflowDispatchService {
 
     public void dispatchOutboundChannelsAsync(WorkflowRuntimePayload runtimePayload,
                                               WorkflowRecord executionRecord,
-                                              MultivaluedMap<Integer, List<WorkflowRuleBinding>> outboundBindingsByOrder)
+                                              MultivaluedMap<Integer, List<WorkflowRuleAndType>> outboundBindingsByOrder)
             throws JsonProcessingException, ClassNotFoundException {
         List<Integer> keys = new ArrayList<>(outboundBindingsByOrder.keySet());
         Collections.sort(keys);
         for (Integer key : keys) {
             List<CompletableFuture<JSONObject>> futures = new ArrayList<>();
-            for (List<WorkflowRuleBinding> bindings : outboundBindingsByOrder.get(key)) {
+            for (List<WorkflowRuleAndType> bindings : outboundBindingsByOrder.get(key)) {
                 CompletableFuture<JSONObject> future =
-                        workflowRuleBindingService.executeLinkingOfRuleAndTypeWithAsync(runtimePayload, bindings);
+                        workflowRuleAndTypeService.executeLinkingOfRuleAndTypeWithAsync(runtimePayload, bindings);
                 futures.add(future);
             }
             List<JSONObject> branchResults = CompletableFuture
@@ -144,15 +144,15 @@ public class WorkflowDispatchService {
 
     public void dispatchOutboundChannelsSync(WorkflowRuntimePayload runtimePayload,
                                              WorkflowRecord executionRecord,
-                                             MultivaluedMap<Integer, List<WorkflowRuleBinding>> outboundBindingsByOrder)
+                                             MultivaluedMap<Integer, List<WorkflowRuleAndType>> outboundBindingsByOrder)
             throws JsonProcessingException, ClassNotFoundException {
         List<Integer> keys = new ArrayList<>(outboundBindingsByOrder.keySet());
         Collections.sort(keys);
         for (Integer key : keys) {
             List<JSONObject> branchResults = new ArrayList<>();
-            for (List<WorkflowRuleBinding> bindings : outboundBindingsByOrder.get(key)) {
+            for (List<WorkflowRuleAndType> bindings : outboundBindingsByOrder.get(key)) {
                 JSONObject branchResult =
-                        workflowRuleBindingService.executeLinkingOfRuleAndType(runtimePayload, bindings);
+                        workflowRuleAndTypeService.executeLinkingOfRuleAndType(runtimePayload, bindings);
                 branchResults.add(branchResult);
             }
             for (JSONObject branchResult : branchResults) {
@@ -178,9 +178,9 @@ public class WorkflowDispatchService {
         workflowRecordService.delete(parentRecord);
     }
 
-    public static boolean ruleBindingsFullyMatch(Object payloadObject, List<WorkflowRuleBinding> bindings) {
+    public static boolean ruleAndTypesFullyMatch(Object payloadObject, List<WorkflowRuleAndType> bindings) {
         int ruleMatchCount = 0;
-        for (WorkflowRuleBinding binding : bindings) {
+        for (WorkflowRuleAndType binding : bindings) {
             String ruleKey = binding.getWorkflowRule().getKey();
             log.debug("ruleKey is : {}", ruleKey);
 

@@ -12,20 +12,20 @@ public interface WorkflowRecordClient {
 
     @PostMapping("/record")
     WorkflowRecord addWorkflowRecord(
-            @RequestHeader(HTTPConstant.X_E2E_TRUST_TOKEN) String token,
+            @RequestHeader(HTTPConstant.OUTBOUND_TRUST_TOKEN_HEADER) String token,
             @RequestBody WorkflowRecord record
     );
 
     @PatchMapping("/record/{id}")
     WorkflowRecord updateWorkflowRecord(
-            @RequestHeader(HTTPConstant.X_E2E_TRUST_TOKEN) String token,
+            @RequestHeader(HTTPConstant.OUTBOUND_TRUST_TOKEN_HEADER) String token,
             @PathVariable("id") Long id,
             @RequestBody WorkflowRecord record
     );
 
     @DeleteMapping("/record/{id}")
     void deleteWorkflowRecord(
-            @RequestHeader(HTTPConstant.X_E2E_TRUST_TOKEN) String token,
+            @RequestHeader(HTTPConstant.OUTBOUND_TRUST_TOKEN_HEADER) String token,
             @PathVariable("id") Long id,
             @RequestBody WorkflowRecord record
     );

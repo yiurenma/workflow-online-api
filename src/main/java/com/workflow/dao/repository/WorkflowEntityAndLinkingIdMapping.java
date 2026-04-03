@@ -22,7 +22,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 @Setter
 @Getter
 @EntityListeners(AuditingEntityListener.class)
-public class WorkflowEntityLink extends Auditable {
+public class WorkflowEntityAndLinkingIdMapping extends Auditable {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

@@ -11,15 +11,15 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.util.List;
 
-
 @Repository
 @RequestMapping(value = "/workflow/")
 @Hidden
-@Tag(name = "DB Repository", description = "Workflow entity linking steps")
-public interface WorkflowEntityLinkRepository extends
-        QuerydslPredicateExecutor<WorkflowEntityLink>,
-        JpaRepository<WorkflowEntityLink, Long>,
-        JpaSpecificationExecutor<WorkflowEntityLink>,
-        RevisionRepository<WorkflowEntityLink, Long, Integer> {
-    List<WorkflowEntityLink> findAllByWorkflowEntitySettingId(long workflowEntitySettingId);
+@Tag(name = "DB Repository", description = "Workflow entity → linking-id steps (shared schema)")
+public interface WorkflowEntityAndLinkingIdMappingRepository extends
+        QuerydslPredicateExecutor<WorkflowEntityAndLinkingIdMapping>,
+        JpaRepository<WorkflowEntityAndLinkingIdMapping, Long>,
+        JpaSpecificationExecutor<WorkflowEntityAndLinkingIdMapping>,
+        RevisionRepository<WorkflowEntityAndLinkingIdMapping, Long, Integer> {
+
+    List<WorkflowEntityAndLinkingIdMapping> findAllByWorkflowEntitySettingId(long workflowEntitySettingId);
 }

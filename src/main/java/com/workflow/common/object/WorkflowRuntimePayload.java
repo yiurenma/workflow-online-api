@@ -18,6 +18,11 @@ import lombok.NoArgsConstructor;
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class WorkflowRuntimePayload {
+
+    /**
+     * Encrypted runtime JSON in {@code WORKFLOW_RECORD.workflow_transaction_details} was created with
+     * historical {@code @JsonProperty} names. Do not rename wire keys without a coordinated DB migration.
+     */
     String originRequestId;
 
     @JsonProperty("messageId")

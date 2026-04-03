@@ -119,24 +119,17 @@ logbook:
       - workflowTransactionDetails
       - workflowResponseFromProvider
 
-caching:
-  ib2bToken:
-    expire: 10000
-  workflowRuleBindingLinkingIdCache:
-    expire: 30000
-  workflowEntityLinkCache:
-    expire: 30000
-
 jks.store.location: ${JKS_STORE_LOCATION:jks/keystoredev.jks}
 jks.key.alias: ${JKS_KEY_ALIAS:mykey}
 jks.storepass: ${JKS_STOREPASS:changeit}
 jks.keypass: ${JKS_KEYPASS:changeit}
 
-dsp.sapi.root.uri-map:
-  DEFAULT: ${DSP_SAPI_URI:}
-  AP: ${DSP_SAPI_URI_AP:${DSP_SAPI_URI:}}
-  EU: ${DSP_SAPI_URI_EU:${DSP_SAPI_URI:}}
-  NA: ${DSP_SAPI_URI_NA:${DSP_SAPI_URI:}}
+# Trust-token (OAuth) issuer bases by region; TRUST_* overrides DSP_* for backward-compatible env names.
+trust.sapi.root.uri-map:
+  DEFAULT: ${TRUST_SAPI_URI:${DSP_SAPI_URI:}}
+  AP: ${TRUST_SAPI_URI_AP:${DSP_SAPI_URI_AP:${TRUST_SAPI_URI:${DSP_SAPI_URI:}}}}
+  EU: ${TRUST_SAPI_URI_EU:${DSP_SAPI_URI_EU:${TRUST_SAPI_URI:${DSP_SAPI_URI:}}}}
+  NA: ${TRUST_SAPI_URI_NA:${DSP_SAPI_URI_NA:${TRUST_SAPI_URI:${DSP_SAPI_URI:}}}}
 
 workflow.sapi.root.uri-map:
   AP: ${WORKFLOW_SAPI_URI_AP:${WORKFLOW_SAPI_URI:}}

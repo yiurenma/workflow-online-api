@@ -1,4 +1,4 @@
-package com.workflow.dao.client.ib2b;
+package com.workflow.dao.client.trusttoken;
 
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -6,12 +6,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 import java.net.URI;
 
-@FeignClient(name = "ib2b-token-api",
-        configuration = {Ib2bTokenErrorDecoder.class})
-public interface Ib2bTokenClient {
+@FeignClient(name = "trust-token-api", configuration = {TrustTokenErrorDecoder.class})
+public interface TrustTokenClient {
 
     @PostMapping
-    TokenResponseBody getIb2bToken(
+    TokenResponseBody exchangeTrustToken(
             URI uri,
             @RequestBody TokenRequestBody tokenRequestBody
     );

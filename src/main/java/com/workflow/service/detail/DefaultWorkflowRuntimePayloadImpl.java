@@ -4,8 +4,8 @@ import com.alibaba.fastjson2.JSONObject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.workflow.common.configuration.JacksonConfiguration;
 import com.workflow.common.object.WorkflowRuntimePayload;
-import com.workflow.dao.repository.WorkflowRuleBinding;
-import com.workflow.service.workflow.WorkflowRuleBindingService;
+import com.workflow.dao.repository.WorkflowRuleAndType;
+import com.workflow.service.workflow.WorkflowRuleAndTypeService;
 import jakarta.ws.rs.core.MultivaluedMap;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
@@ -21,21 +21,23 @@ import java.util.concurrent.CompletableFuture;
 @Service
 @Slf4j
 public class DefaultWorkflowRuntimePayloadImpl implements WorkflowRuntimePayloadInterface {
-    @Autowired
-    WorkflowRuleBindingService workflowRuleBindingService;
 
-    public WorkflowRuntimePayload getTransactionDetails(
+    @Autowired
+    WorkflowRuleAndTypeService workflowRuleAndTypeService;
+
+    @Override
+    public WorkflowRuntimePayload getRuntimePayloadWithAsyncEnrichment(
             WorkflowRuntimePayload runtimePayload,
-            MultivaluedMap<Integer, List<WorkflowRuleBinding>> bindingsByLogicOrder) throws IOException, ClassNotFoundException {
+            MultivaluedMap<Integer, List<WorkflowRuleAndType>> bindingsByLogicOrder) throws IOException, ClassNotFoundException {
         List<Integer> keys = new ArrayList<>(bindingsByLogicOrder.keySet());
         Collections.sort(keys);
         for (Integer key : keys) {
             List<CompletableFuture<JSONObject>> futures = new ArrayList<>();
             ObjectMapper om = new JacksonConfiguration().objectMapper();
             log.debug("logic id : {}", key);
-            for (List<WorkflowRuleBinding> ruleBindings : bindingsByLogicOrder.get(key)) {
+            for (List<WorkflowRuleAndType> ruleAndTypes : bindingsByLogicOrder.get(key)) {
                 CompletableFuture<JSONObject> future =
-                        workflowRuleBindingService.executeLinkingOfRuleAndTypeWithAsync(runtimePayload, ruleBindings);
+                        workflowRuleAndTypeService.executeLinkingOfRuleAndTypeWithAsync(runtimePayload, ruleAndTypes);
                 futures.add(future);
             }
             List<JSONObject> branchJsonList = CompletableFuture
@@ -59,17 +61,18 @@ public class DefaultWorkflowRuntimePayloadImpl implements WorkflowRuntimePayload
         return runtimePayload;
     }
 
-    public WorkflowRuntimePayload getTransactionDetailsWithoutAsync(
+    @Override
+    public WorkflowRuntimePayload getRuntimePayloadWithSyncEnrichment(
             WorkflowRuntimePayload runtimePayload,
-            MultivaluedMap<Integer, List<WorkflowRuleBinding>> bindingsByLogicOrder) throws IOException, ClassNotFoundException {
+            MultivaluedMap<Integer, List<WorkflowRuleAndType>> bindingsByLogicOrder) throws IOException, ClassNotFoundException {
         List<Integer> keys = new ArrayList<>(bindingsByLogicOrder.keySet());
         Collections.sort(keys);
         for (Integer key : keys) {
             List<JSONObject> branchJsonList = new ArrayList<>();
             ObjectMapper om = new JacksonConfiguration().objectMapper();
             log.debug("logic id : {}", key);
-            for (List<WorkflowRuleBinding> ruleBindings : bindingsByLogicOrder.get(key)) {
-                JSONObject branch = workflowRuleBindingService.executeLinkingOfRuleAndType(runtimePayload, ruleBindings);
+            for (List<WorkflowRuleAndType> ruleAndTypes : bindingsByLogicOrder.get(key)) {
+                JSONObject branch = workflowRuleAndTypeService.executeLinkingOfRuleAndType(runtimePayload, ruleAndTypes);
                 branchJsonList.add(branch);
             }
             for (JSONObject branch : branchJsonList) {

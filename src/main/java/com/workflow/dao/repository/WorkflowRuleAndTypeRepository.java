@@ -14,11 +14,12 @@ import java.util.List;
 @Repository
 @RequestMapping(value = "/workflow/")
 @Hidden
-@Tag(name = "DB Repository", description = "Workflow rule-to-type bindings")
-public interface WorkflowRuleBindingRepository extends
-        QuerydslPredicateExecutor<WorkflowRuleBinding>,
-        JpaRepository<WorkflowRuleBinding, Long>,
-        JpaSpecificationExecutor<WorkflowRuleBinding>,
-        RevisionRepository<WorkflowRuleBinding, Long, Integer> {
-    List<WorkflowRuleBinding> getAllByLinkingId(String linkingId);
+@Tag(name = "DB Repository", description = "Workflow rule ↔ type rows (shared schema)")
+public interface WorkflowRuleAndTypeRepository extends
+        QuerydslPredicateExecutor<WorkflowRuleAndType>,
+        JpaRepository<WorkflowRuleAndType, Long>,
+        JpaSpecificationExecutor<WorkflowRuleAndType>,
+        RevisionRepository<WorkflowRuleAndType, Long, Integer> {
+
+    List<WorkflowRuleAndType> getAllByLinkingId(String linkingId);
 }

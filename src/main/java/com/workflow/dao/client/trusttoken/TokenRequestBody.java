@@ -1,4 +1,4 @@
-package com.workflow.dao.client.ib2b;
+package com.workflow.dao.client.trusttoken;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;

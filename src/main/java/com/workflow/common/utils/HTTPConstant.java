@@ -10,6 +10,9 @@ public class HTTPConstant {
     public static final String SESSION_CORRELATION = "X-Session-Correlation-Id";
     /** Request correlation id (mirrors {@link AppConstant#requestId}). */
     public static final String REQUEST_CORRELATION = "X-Request-Correlation-Id";
-    /** Outbound trust / bearer token header used for integration Feign clients. */
-    public static final String X_E2E_TRUST_TOKEN = "X-E2E-Trust-Token";
+    /**
+     * Outbound trust-token header for HTTP integrations.
+     * Value kept for compatibility with existing workflow templates and downstream services.
+     */
+    public static final String OUTBOUND_TRUST_TOKEN_HEADER = "X-E2E-Trust-Token";
 }

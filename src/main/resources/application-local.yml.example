@@ -6,3 +6,6 @@
 #     url: jdbc:p6spy:postgresql://YOUR_HOST/YOUR_DB?sslmode=require&channel_binding=require
 #     username: YOUR_USER
 #     password: YOUR_PASSWORD
+#
+# trust.sapi.root.uri-map:
+#   DEFAULT: https://your-token-issuer/oauth/token

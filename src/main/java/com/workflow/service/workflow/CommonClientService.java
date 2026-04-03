@@ -9,7 +9,7 @@ import com.workflow.common.utils.AppConstant;
 import com.workflow.common.utils.HTTPConstant;
 import com.workflow.common.utils.Tools;
 import com.workflow.dao.repository.WorkflowType;
-import com.workflow.service.Ib2bTokenService;
+import com.workflow.service.TrustTokenService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.logging.log4j.util.Strings;
@@ -34,7 +34,7 @@ public class CommonClientService {
     RestTemplateConfiguration restTemplateConfiguration;
 
     @Autowired
-    Ib2bTokenService ib2bTokenService;
+    TrustTokenService trustTokenService;
     @Value("${workflow.http.internal-host-marker}")
     String internalHostMarker;
 
@@ -58,9 +58,9 @@ public class CommonClientService {
             for (Map.Entry<String, String> entry : requestHeaders.entrySet())
                 requestHeadersMap.put(entry.getKey(), Collections.singletonList(entry.getValue()));
             if (ObjectUtils.isNotEmpty(requestHeadersMap.getFirst("Authentication"))) {
-                requestHeadersMap.add(HTTPConstant.X_E2E_TRUST_TOKEN, ib2bTokenService.getIb2bToken(Objects.requireNonNull(requestHeadersMap.getFirst("Authentication")), runtimePayload.getWorkflowEntitySetting().getRegion()));
+                requestHeadersMap.add(HTTPConstant.OUTBOUND_TRUST_TOKEN_HEADER, trustTokenService.getTrustToken(Objects.requireNonNull(requestHeadersMap.getFirst("Authentication")), runtimePayload.getWorkflowEntitySetting().getRegion()));
             } else if (ObjectUtils.isNotEmpty(runtimePayload.getWorkflowEntitySetting().getDefaultServiceAccount())) {
-                requestHeadersMap.add(HTTPConstant.X_E2E_TRUST_TOKEN, ib2bTokenService.getIb2bToken(runtimePayload.getWorkflowEntitySetting().getDefaultServiceAccount(), runtimePayload.getWorkflowEntitySetting().getRegion()));
+                requestHeadersMap.add(HTTPConstant.OUTBOUND_TRUST_TOKEN_HEADER, trustTokenService.getTrustToken(runtimePayload.getWorkflowEntitySetting().getDefaultServiceAccount(), runtimePayload.getWorkflowEntitySetting().getRegion()));
             }
 
             Object requestBody = new Object();

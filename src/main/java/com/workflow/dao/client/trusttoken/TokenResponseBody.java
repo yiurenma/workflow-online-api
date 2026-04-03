@@ -1,4 +1,4 @@
-package com.workflow.dao.client.ib2b;
+package com.workflow.dao.client.trusttoken;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
@@ -10,8 +10,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class OutputTokenState {
+public class TokenResponseBody {
 
-    @JsonProperty("token_type")
-    String tokenType;
+    @JsonProperty("issued_token")
+    String issuedToken;
 }
