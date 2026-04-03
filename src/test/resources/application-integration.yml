@@ -1,0 +1,18 @@
+# Profile "integration": same DB defaults as main application.yml (yiurenma/workflow Neon).
+# Override with SPRING_DATASOURCE_* when needed.
+# Still requires IT_WORKFLOW_APPLICATION_NAME for WorkflowOnlineApiIT (seed via Operation API).
+#
+# Run: mvn verify -Pintegration
+
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:p6spy:postgresql://ep-frosty-bush-a5f8yx09-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require}
+    username: ${SPRING_DATASOURCE_USERNAME:neondb_owner}
+    password: ${SPRING_DATASOURCE_PASSWORD:npg_iW3juwZGAI8K}
+    hikari:
+      connection-timeout: ${SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT_MS:120000}
+      initialization-fail-timeout: ${SPRING_DATASOURCE_HIKARI_INIT_FAIL_TIMEOUT_MS:120000}
+
+  jpa:
+    hibernate:
+      ddl-auto: none

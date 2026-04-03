@@ -1,0 +1,205 @@
+package com.workflow.service.workflow;
+
+import com.alibaba.fastjson2.JSONArray;
+import com.alibaba.fastjson2.JSONObject;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.workflow.common.configuration.JacksonConfiguration;
+import com.workflow.common.object.WorkflowRunStatus;
+import com.workflow.common.object.WorkflowRuntimePayload;
+import com.workflow.common.object.security.SecureData;
+import com.workflow.dao.repository.WorkflowEntityLink;
+import com.workflow.dao.repository.WorkflowRecord;
+import com.workflow.dao.repository.WorkflowRuleBinding;
+import com.workflow.service.detail.WorkflowRuntimePayloadFactory;
+import com.jayway.jsonpath.Configuration;
+import com.jayway.jsonpath.JsonPath;
+import com.jayway.jsonpath.Option;
+import jakarta.ws.rs.core.MultivaluedHashMap;
+import jakarta.ws.rs.core.MultivaluedMap;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.ObjectUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+
+import static com.workflow.common.object.Type.*;
+
+@Service
+@Slf4j
+public class WorkflowDispatchService {
+
+    @Autowired
+    WorkflowRuleBindingService workflowRuleBindingService;
+    @Autowired
+    WorkflowRuntimePayloadFactory workflowRuntimePayloadFactory;
+    @Autowired
+    SecureData secureData;
+    @Autowired
+    WorkflowRecordService workflowRecordService;
+    @Value("${async.enrichInformation}")
+    boolean enrichInformationAsync;
+    @Value("${async.dispatchChannels}")
+    boolean dispatchChannelsAsync;
+
+    @Async
+    public void dispatchFromPersistedRecord(WorkflowRecord executionRecord,
+                                            WorkflowRuntimePayload runtimePayload)
+            throws IOException, ClassNotFoundException {
+        List<WorkflowEntityLink> entityLinks =
+                workflowRuleBindingService.getWorkflowEntityLink(runtimePayload.getWorkflowEntitySetting().getId());
+        log.info("There are {} steps for {}",
+                entityLinks.size(),
+                runtimePayload.getWorkflowEntitySetting().getApplicationName()
+        );
+
+        MultivaluedMap<Integer, List<WorkflowRuleBinding>> outboundBindingsByOrder = new MultivaluedHashMap<>();
+        MultivaluedMap<Integer, List<WorkflowRuleBinding>> enrichmentBindingsByOrder = new MultivaluedHashMap<>();
+        for (int i = 0; i < entityLinks.size(); i++) {
+            List<WorkflowRuleBinding> bindings =
+                    workflowRuleBindingService.getWorkflowRuleBindingLinkingId(entityLinks.get(i).getLinkingId());
+            if (!bindings.isEmpty()) {
+                WorkflowRuleBinding first = bindings.get(0);
+                if (CONSUMER.toString().equals(first.getWorkflowType().getType())
+                        || IFELSE.toString().equals(first.getWorkflowType().getType())
+                        || FUNCTION.toString().equalsIgnoreCase(first.getWorkflowType().getType())
+                        || FUNCTION_V2.toString().equalsIgnoreCase(first.getWorkflowType().getType())) {
+                    enrichmentBindingsByOrder.add(entityLinks.get(i).getLogicOrder(), bindings);
+                }
+                if (DISPATCH.toString().equals(first.getWorkflowType().getType())) {
+                    outboundBindingsByOrder.add(entityLinks.get(i).getLogicOrder(), bindings);
+                }
+            }
+        }
+
+        try {
+            if (enrichInformationAsync) {
+                runtimePayload = workflowRuntimePayloadFactory
+                        .getInstance(runtimePayload.getWorkflowEntitySetting().getApplicationName())
+                        .getTransactionDetails(runtimePayload, enrichmentBindingsByOrder);
+            } else {
+                runtimePayload = workflowRuntimePayloadFactory
+                        .getInstance(runtimePayload.getWorkflowEntitySetting().getApplicationName())
+                        .getTransactionDetailsWithoutAsync(runtimePayload, enrichmentBindingsByOrder);
+            }
+        } catch (Exception e) {
+            log.error("exception when gather information : {}", e.toString());
+            executionRecord.setOverallStatus(WorkflowRunStatus.GI_FAIL.toString());
+        }
+
+        ObjectMapper om = new JacksonConfiguration().objectMapper();
+        executionRecord.setWorkflowTransactionDetails(
+                secureData.encrypt(JSONObject.parseObject(om.writeValueAsString(runtimePayload)).toString()));
+        executionRecord.setCustomerId(
+                runtimePayload.getContactProfile() != null ? runtimePayload.getContactProfile().getCustomerId() : null);
+        if (!executionRecord.getOverallStatus().equals(WorkflowRunStatus.GI_FAIL.toString())) {
+            executionRecord.setOverallStatus(WorkflowRunStatus.GI_SUCCESS.toString());
+        }
+        workflowRecordService.save(executionRecord);
+
+        if (dispatchChannelsAsync) {
+            dispatchOutboundChannelsAsync(runtimePayload, executionRecord, outboundBindingsByOrder);
+        } else {
+            dispatchOutboundChannelsSync(runtimePayload, executionRecord, outboundBindingsByOrder);
+        }
+    }
+
+    public void dispatchOutboundChannelsAsync(WorkflowRuntimePayload runtimePayload,
+                                              WorkflowRecord executionRecord,
+                                              MultivaluedMap<Integer, List<WorkflowRuleBinding>> outboundBindingsByOrder)
+            throws JsonProcessingException, ClassNotFoundException {
+        List<Integer> keys = new ArrayList<>(outboundBindingsByOrder.keySet());
+        Collections.sort(keys);
+        for (Integer key : keys) {
+            List<CompletableFuture<JSONObject>> futures = new ArrayList<>();
+            for (List<WorkflowRuleBinding> bindings : outboundBindingsByOrder.get(key)) {
+                CompletableFuture<JSONObject> future =
+                        workflowRuleBindingService.executeLinkingOfRuleAndTypeWithAsync(runtimePayload, bindings);
+                futures.add(future);
+            }
+            List<JSONObject> branchResults = CompletableFuture
+                    .allOf(futures.toArray(new CompletableFuture[0]))
+                    .thenApply(v -> {
+                        List<JSONObject> jsonObjects = new ArrayList<>();
+                        for (CompletableFuture<JSONObject> future : futures) {
+                            jsonObjects.add(future.join());
+                        }
+                        return jsonObjects;
+                    })
+                    .join();
+            for (JSONObject branchResult : branchResults) {
+                if (ObjectUtils.isNotEmpty(branchResult)) {
+                    mergeBranchResultIntoRecord(executionRecord, branchResult);
+                }
+            }
+        }
+    }
+
+    public void dispatchOutboundChannelsSync(WorkflowRuntimePayload runtimePayload,
+                                             WorkflowRecord executionRecord,
+                                             MultivaluedMap<Integer, List<WorkflowRuleBinding>> outboundBindingsByOrder)
+            throws JsonProcessingException, ClassNotFoundException {
+        List<Integer> keys = new ArrayList<>(outboundBindingsByOrder.keySet());
+        Collections.sort(keys);
+        for (Integer key : keys) {
+            List<JSONObject> branchResults = new ArrayList<>();
+            for (List<WorkflowRuleBinding> bindings : outboundBindingsByOrder.get(key)) {
+                JSONObject branchResult =
+                        workflowRuleBindingService.executeLinkingOfRuleAndType(runtimePayload, bindings);
+                branchResults.add(branchResult);
+            }
+            for (JSONObject branchResult : branchResults) {
+                if (ObjectUtils.isNotEmpty(branchResult)) {
+                    mergeBranchResultIntoRecord(executionRecord, branchResult);
+                }
+            }
+        }
+    }
+
+    private void mergeBranchResultIntoRecord(WorkflowRecord parentRecord, JSONObject branchResult)
+            throws JsonProcessingException {
+        ObjectMapper om = new JacksonConfiguration().objectMapper();
+        WorkflowRecord child = WorkflowRecord.builder().build();
+        child.setRequestCorrelationId(parentRecord.getRequestCorrelationId());
+        child.setTransactionConfirmationNumber(parentRecord.getTransactionConfirmationNumber());
+        child.setCustomerId(parentRecord.getCustomerId());
+        child.setOriginWorkflowRecordId(parentRecord.getOriginWorkflowRecordId());
+        child = om.convertValue(
+                om.readerForUpdating(om.readTree(JSONObject.parseObject(om.writeValueAsString(child)).toString()))
+                        .readValue(branchResult.toString()), WorkflowRecord.class);
+        workflowRecordService.save(child);
+        workflowRecordService.delete(parentRecord);
+    }
+
+    public static boolean ruleBindingsFullyMatch(Object payloadObject, List<WorkflowRuleBinding> bindings) {
+        int ruleMatchCount = 0;
+        for (WorkflowRuleBinding binding : bindings) {
+            String ruleKey = binding.getWorkflowRule().getKey();
+            log.debug("ruleKey is : {}", ruleKey);
+
+            try {
+                String transactionDetailsString = new JacksonConfiguration().objectMapper().writeValueAsString(payloadObject);
+                Configuration configuration = Configuration.builder().options(Option.SUPPRESS_EXCEPTIONS).build();
+                JSONArray parseResult = JSONArray.parseArray(
+                        JsonPath.using(configuration).parse(transactionDetailsString).read(ruleKey).toString());
+                log.debug("Json Parse Result is : {} ", parseResult);
+
+                if (parseResult.isEmpty()) {
+                    break;
+                } else {
+                    ruleMatchCount++;
+                }
+            } catch (JsonProcessingException e) {
+                log.error("Json Parse Error happened.", e);
+            }
+        }
+        return ruleMatchCount == bindings.size();
+    }
+}

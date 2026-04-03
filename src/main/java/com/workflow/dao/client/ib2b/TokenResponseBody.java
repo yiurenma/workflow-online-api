@@ -1,0 +1,17 @@
+package com.workflow.dao.client.ib2b;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class TokenResponseBody {
+
+    @JsonProperty("issued_token")
+    String issuedToken;
+}

@@ -1,0 +1,8 @@
+# Optional: copy to application-local.yml (gitignored) to override defaults from application.yml.
+# Defaults already match yiurenma/workflow Neon credentials; use this when pointing at another database.
+
+# spring:
+#   datasource:
+#     url: jdbc:p6spy:postgresql://YOUR_HOST/YOUR_DB?sslmode=require&channel_binding=require
+#     username: YOUR_USER
+#     password: YOUR_PASSWORD

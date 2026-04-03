@@ -1,0 +1,157 @@
+spring:
+  application:
+    name: workflow-online-api
+
+  # Same Neon PostgreSQL as yiurenma/workflow (https://github.com/yiurenma/workflow/blob/main/src/main/resources/application.yml).
+  # Override with SPRING_DATASOURCE_* env vars for other environments.
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:p6spy:postgresql://ep-frosty-bush-a5f8yx09-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require}
+    username: ${SPRING_DATASOURCE_USERNAME:neondb_owner}
+    password: ${SPRING_DATASOURCE_PASSWORD:npg_iW3juwZGAI8K}
+    driver-class-name: com.p6spy.engine.spy.P6SpyDriver
+    hikari:
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MIN_IDLE:0}
+      # Allow slow/first connection to Neon so the process does not exit before the pool validates.
+      connection-timeout: ${SPRING_DATASOURCE_HIKARI_CONNECTION_TIMEOUT_MS:120000}
+      initialization-fail-timeout: ${SPRING_DATASOURCE_HIKARI_INIT_FAIL_TIMEOUT_MS:120000}
+      auto-commit: false
+
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:none}
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        id.db_structure_naming_strategy: legacy
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+
+  cloud:
+    openfeign:
+      httpclient:
+        hc5:
+          enabled: true
+
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: false
+
+  main:
+    allow-bean-definition-overriding: true
+
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 500MB
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    whitelabel:
+      enabled: false
+  compression:
+    enabled: false
+  max-http-header-size: 65536
+  tomcat:
+    uri-encoding: UTF-8
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  tracing:
+    enabled: true
+    sampling:
+      probability: 1.0
+  endpoint:
+    health:
+      show-details: when-authorized
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+  paths-to-exclude:
+    - /profile
+    - /profile/**
+    - /api/profile
+    - /api/profile/**
+  default-consumes-media-type: application/json
+  default-produces-media-type: application/json
+
+logging:
+  pattern:
+    level: "%5p"
+  level:
+    root: INFO
+    com.workflow: INFO
+    org.zalando.logbook: TRACE
+    p6spy: INFO
+    com.p6spy: INFO
+    software.amazon: WARN
+
+logbook:
+  format:
+    style: json
+  exclude:
+    - /actuator/**
+    - /health
+    - /error
+    - /v3/api-docs/**
+    - /swagger-ui/**
+    - /swagger-ui.html
+    - /redoc.html
+  obfuscate:
+    headers:
+      - Authorization
+      - Cookie
+      - Set-Cookie
+      - X-E2E-Trust-Token
+    parameters:
+      - access_token
+      - password
+    json-body-fields:
+      - issued_token
+      - password
+      - workflowTransactionDetails
+      - workflowResponseFromProvider
+
+caching:
+  ib2bToken:
+    expire: 10000
+  workflowRuleBindingLinkingIdCache:
+    expire: 30000
+  workflowEntityLinkCache:
+    expire: 30000
+
+jks.store.location: ${JKS_STORE_LOCATION:jks/keystoredev.jks}
+jks.key.alias: ${JKS_KEY_ALIAS:mykey}
+jks.storepass: ${JKS_STOREPASS:changeit}
+jks.keypass: ${JKS_KEYPASS:changeit}
+
+dsp.sapi.root.uri-map:
+  DEFAULT: ${DSP_SAPI_URI:}
+  AP: ${DSP_SAPI_URI_AP:${DSP_SAPI_URI:}}
+  EU: ${DSP_SAPI_URI_EU:${DSP_SAPI_URI:}}
+  NA: ${DSP_SAPI_URI_NA:${DSP_SAPI_URI:}}
+
+workflow.sapi.root.uri-map:
+  AP: ${WORKFLOW_SAPI_URI_AP:${WORKFLOW_SAPI_URI:}}
+  EU: ${WORKFLOW_SAPI_URI_EU:${WORKFLOW_SAPI_URI:}}
+  NA: ${WORKFLOW_SAPI_URI_NA:${WORKFLOW_SAPI_URI:}}
+
+workflow.record.sapi.uri: ${WORKFLOW_RECORD_URI:}
+
+special.country.code.convert.map:
+  "{UK: 'GB'}"
+
+async:
+  enrichInformation: false
+  dispatchChannels: true
+
+workflow:
+  http:
+    internal-host-marker: ${WORKFLOW_INTERNAL_HOST_MARKER:localhost}
