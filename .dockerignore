@@ -1,0 +1,19 @@
+# Git / IDE
+.git
+.github
+.gitignore
+.cursor
+.idea
+*.iml
+.DS_Store
+
+# Local reference clone (not needed in image)
+reference-workflow
+
+# Maven (rebuilt inside Docker)
+target
+
+# Docs / local secrets
+*.md
+!README.md
+application-local.yml
