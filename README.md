@@ -80,34 +80,6 @@ mvn clean verify
 
 JaCoCo enforces **≥ 98%** instruction coverage on the **checked slice** (entry controller, trust-token helper, and shared utilities under test), with exclusions aligned to generated JPA / Feign plumbing — same idea as **`yiurenma/workflow`**. Use **`-Djacoco.skip=true`** only when you intentionally skip the gate.
 
-## Deploy to Fly.io (Docker + GitHub Actions)
-
-Files: **`Dockerfile`**, **`fly.toml`**, **`.github/workflows/fly-deploy.yml`**.
-
-1. **Create the app** (once), reference name (matches `fly.toml`): **`workflow-online-api`**
-   ```bash
-   fly apps create workflow-online-api
-   ```
-   If Fly says the name is taken, pick another (e.g. `workflow-online-api-yourorg`) and set the same string as **`app = "..."`** in `fly.toml`.
-
-2. **Secrets** (DB and any prod overrides), example:
-   ```bash
-   fly secrets set \
-     SPRING_DATASOURCE_URL='jdbc:p6spy:postgresql://YOUR_HOST/YOUR_DB?sslmode=require' \
-     SPRING_DATASOURCE_USERNAME='YOUR_USER' \
-     SPRING_DATASOURCE_PASSWORD='YOUR_PASSWORD' \
-     SPRING_JPA_HIBERNATE_DDL_AUTO='none'
-   ```
-   Add **`JKS_*`** / trust URIs if your workflow needs them in this environment.
-
-3. **GitHub**: repo → *Settings → Secrets and variables → Actions* → add **`FLY_API_TOKEN`** (Fly *Access Tokens* / deploy token with permission to deploy this app).
-
-4. **Trigger**: push to **`main`** or **`develop`**, or run the workflow manually (*Actions → Deploy to Fly.io → Run workflow*).
-
-Local smoke build: `docker build -t workflow-online-api:local .`
-
-**CI / `fly deploy` fails with `Error: app not found`** — the name in **`fly.toml`** (`app =`) must already exist on Fly for the org tied to **`FLY_API_TOKEN`**. Run `fly apps create <that-name>` (locally, same account/org), or change `app` to match an existing app.
-
 ## Deploy to Render (GitHub Actions + Deploy Hook)
 
 Use this when the service is a **Render Web Service** built from this repo (e.g. **Docker** with root `Dockerfile`).
@@ -119,6 +91,8 @@ Use this when the service is a **Render Web Service** built from this repo (e.g.
 **Avoid double deploys:** if Render is set to **auto-deploy on push** *and* you use this workflow, each push may trigger **two** builds. Either disable auto-deploy on Render and rely on the hook only, or remove this workflow.
 
 Set **Environment** variables for DB and Spring on the Render service (same names as locally: `SPRING_DATASOURCE_*`, etc.).
+
+Local smoke build (same image Render uses): `docker build -t workflow-online-api:local .`
 
 ## Integration tests (PostgreSQL)
 
