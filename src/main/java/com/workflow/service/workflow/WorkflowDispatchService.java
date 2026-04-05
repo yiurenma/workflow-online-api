@@ -49,9 +49,26 @@ public class WorkflowDispatchService {
     @Value("${async.dispatchChannels}")
     boolean dispatchChannelsAsync;
 
+    /**
+     * Synchronous dispatch — used when {@code asyncMode=false} on WorkflowEntitySetting.
+     * Enrichment and dispatch complete before the caller returns; the HTTP response is only
+     * sent after the full pipeline has finished.
+     */
+    public void dispatchFromPersistedRecordSync(WorkflowRecord executionRecord,
+                                                WorkflowRuntimePayload runtimePayload)
+            throws IOException, ClassNotFoundException {
+        runDispatchPipeline(executionRecord, runtimePayload);
+    }
+
     @Async
     public void dispatchFromPersistedRecord(WorkflowRecord executionRecord,
                                             WorkflowRuntimePayload runtimePayload)
+            throws IOException, ClassNotFoundException {
+        runDispatchPipeline(executionRecord, runtimePayload);
+    }
+
+    private void runDispatchPipeline(WorkflowRecord executionRecord,
+                                     WorkflowRuntimePayload runtimePayload)
             throws IOException, ClassNotFoundException {
         List<WorkflowEntityAndLinkingIdMapping> entityLinks =
                 workflowRuleAndTypeService.findEntityLinkingMappingsBySettingId(runtimePayload.getWorkflowEntitySetting().getId());
@@ -68,9 +85,11 @@ public class WorkflowDispatchService {
             if (!bindings.isEmpty()) {
                 WorkflowRuleAndType first = bindings.get(0);
                 if (CONSUMER.toString().equals(first.getWorkflowType().getType())
+                        || CONSUMERWITHOUTERROR.toString().equals(first.getWorkflowType().getType())
                         || IFELSE.toString().equals(first.getWorkflowType().getType())
                         || FUNCTION.toString().equalsIgnoreCase(first.getWorkflowType().getType())
-                        || FUNCTION_V2.toString().equalsIgnoreCase(first.getWorkflowType().getType())) {
+                        || FUNCTION_V2.toString().equalsIgnoreCase(first.getWorkflowType().getType())
+                        || FUNCTION_V3.toString().equalsIgnoreCase(first.getWorkflowType().getType())) {
                     enrichmentBindingsByOrder.add(entityLinks.get(i).getLogicOrder(), bindings);
                 }
                 if (DISPATCH.toString().equals(first.getWorkflowType().getType())) {

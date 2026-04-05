@@ -237,7 +237,11 @@ public class WorkflowOnlineController {
             record.setWorkflowTransactionDetails(secureData.encrypt(JSONObject.parseObject(om.writeValueAsString(runtimePayload)).toString()));
             record = workflowRecordService.save(record);
 
-            workflowDispatchService.dispatchFromPersistedRecord(record, runtimePayload);
+            if (settings.get(0).isAsyncMode()) {
+                workflowDispatchService.dispatchFromPersistedRecord(record, runtimePayload);
+            } else {
+                workflowDispatchService.dispatchFromPersistedRecordSync(record, runtimePayload);
+            }
         } else {
             throw BaseErrorException.withErrorCodeAndErrorDetails(
                     ErrorCode.M0001,

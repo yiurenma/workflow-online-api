@@ -72,6 +72,23 @@ public class WorkflowRuleAndTypeService {
                                 JSONObject.class
                         );
             }
+            if (CONSUMERWITHOUTERROR.toString().equals(wt.getType())) {
+                log.info("{} execute because of : {}", CONSUMERWITHOUTERROR, wt.getRemark());
+                try {
+                    subWorkflowRuntimePayload =
+                            om.readValue(
+                                    Tools.replaceVariables(
+                                            new String(Base64.getDecoder().decode(wt.getTrackingNumberSchemaInHttpResponse())),
+                                            commonClientService.sending(wt, runtimePayload),
+                                            AppConstant.VARIABLE_BEGIN_STRING,
+                                            AppConstant.VARIABLE_END_STRING
+                                    ),
+                                    JSONObject.class
+                            );
+                } catch (Exception e) {
+                    log.warn("{} step suppressed exception (execution continues): {}", CONSUMERWITHOUTERROR, e.getMessage());
+                }
+            }
             if (IFELSE.toString().equals(wt.getType())) {
                 log.info("{} execute because of : {}", IFELSE, wt.getRemark());
                 subWorkflowRuntimePayload =
@@ -172,6 +189,55 @@ public class WorkflowRuleAndTypeService {
             }
             if (FUNCTION_V2.toString().equals(wt.getType())) {
                 log.info("{} execute because of : {}", FUNCTION_V2, wt.getRemark());
+                FunctionObject function = JSONObject.parseObject(new String(Base64.getDecoder().decode(wt.getElseLogic())), FunctionObject.class);
+                Class<?> foundClass = Class.forName(function.getClassName());
+                Method[] methods = foundClass.getDeclaredMethods();
+                for (int i = 0; i < methods.length; i++) {
+                    if (function.getMethodName().equals(methods[i].getName())
+                            && function.getInputParameterList().size() == methods[i].getParameterCount()) {
+                        function.getInputParameterList().sort(Comparator.comparing(ParameterObject::getParameterOrder));
+
+                        Class[] paramTypes = new Class[function.getInputParameterList().size()];
+                        Object[] paramValues = new Object[function.getInputParameterList().size()];
+                        for (int j = 0; j < function.getInputParameterList().size(); j++) {
+                            paramTypes[j] = Class.forName(function.getInputParameterList().get(j).getParameterClass());
+                            paramValues[j] =
+                                    Tools.replaceVariables(
+                                            function.getInputParameterList().get(j).getParameterValue(),
+                                            runtimePayload,
+                                            AppConstant.VARIABLE_BEGIN_STRING,
+                                            AppConstant.VARIABLE_END_STRING
+                                    );
+                        }
+                        try {
+                            Method foundMethod = foundClass.getMethod(function.getMethodName(), paramTypes);
+                            subWorkflowRuntimePayload =
+                                    om.readValue(
+                                            Tools.replaceVariables(
+                                                    function.getOutputParameter().toString(),
+                                                    JSONObject.parseObject(
+                                                            om.writeValueAsString(
+                                                                    WorkflowRuntimePayload.builder()
+                                                                            .reference(foundMethod.invoke(foundClass.newInstance(), paramValues))
+                                                                            .build())),
+                                                    AppConstant.VARIABLE_BEGIN_STRING,
+                                                    AppConstant.VARIABLE_END_STRING
+                                            ),
+                                            JSONObject.class
+                                    );
+                            break;
+                        } catch (NoSuchMethodException e) {
+                            continue;
+                        } catch (InvocationTargetException | IllegalAccessException | InstantiationException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }
+                }
+            }
+            // TODO (AD-3): FUNCTION_V3 uses a different invocation style from FUNCTION_V2;
+            //  implement the differentiated logic when the invocation contract is finalised.
+            if (FUNCTION_V3.toString().equals(wt.getType())) {
+                log.info("{} execute because of : {}", FUNCTION_V3, wt.getRemark());
                 FunctionObject function = JSONObject.parseObject(new String(Base64.getDecoder().decode(wt.getElseLogic())), FunctionObject.class);
                 Class<?> foundClass = Class.forName(function.getClassName());
                 Method[] methods = foundClass.getDeclaredMethods();

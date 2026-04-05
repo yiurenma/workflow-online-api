@@ -73,6 +73,10 @@ public class WorkflowEntitySetting extends Auditable implements Serializable {
     @Comment("Retry configuration payload (JSON/text)")
     private String retryProperties;
 
+    @Column(nullable = true, columnDefinition = "boolean default true")
+    @Comment("Whether enrichment and dispatch execute asynchronously (true) or synchronously (false)")
+    private boolean asyncMode = true;
+
     @Column(columnDefinition = "TEXT")
     @Comment("Base64-encoded workflow UI map (plugin list, uiMap, uiMapList)")
     private String workflow;
