@@ -106,6 +106,20 @@ Files: **`Dockerfile`**, **`fly.toml`**, **`.github/workflows/fly-deploy.yml`**.
 
 Local smoke build: `docker build -t workflow-online-api:local .`
 
+**CI / `fly deploy` fails with `Error: app not found`** — the name in **`fly.toml`** (`app =`) must already exist on Fly for the org tied to **`FLY_API_TOKEN`**. Run `fly apps create <that-name>` (locally, same account/org), or change `app` to match an existing app.
+
+## Deploy to Render (GitHub Actions + Deploy Hook)
+
+Use this when the service is a **Render Web Service** built from this repo (e.g. **Docker** with root `Dockerfile`).
+
+1. In **Render**: open the service → **Settings** → **Build & Deploy** → **Deploy Hook** → create a hook and copy the URL.
+2. In **GitHub**: repo → **Settings** → **Secrets and variables** → **Actions** → New secret **`RENDER_DEPLOY_HOOK_URL`** (paste the hook URL).
+3. Workflow **`.github/workflows/render-deploy.yml`** runs **`mvn test`**, then **`POST`**s the hook so Render pulls latest commit and rebuilds.
+
+**Avoid double deploys:** if Render is set to **auto-deploy on push** *and* you use this workflow, each push may trigger **two** builds. Either disable auto-deploy on Render and rely on the hook only, or remove this workflow.
+
+Set **Environment** variables for DB and Spring on the Render service (same names as locally: `SPRING_DATASOURCE_*`, etc.).
+
 ## Integration tests (PostgreSQL)
 
 `*IT` classes run under the Maven **`integration`** profile (skipped by default).

@@ -10,6 +10,14 @@
 #
 name: Deploy to Fly.io
 
+permissions:
+  contents: read
+
+# Quiet Node 20 deprecation on Actions until all vendors ship Node 24–based actions
+# https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     branches:
@@ -26,9 +34,9 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
@@ -49,9 +57,10 @@ jobs:
       github.ref == 'refs/heads/main' ||
       github.ref == 'refs/heads/develop'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      # Pinned release (avoid @master); see github.com/superfly/flyctl-actions/releases
+      - uses: superfly/flyctl-actions/setup-flyctl@1.5
 
       - name: fly deploy
         run: flyctl deploy --remote-only
