@@ -13,6 +13,8 @@ mvn spring-boot:run
 
 Runs at **`http://localhost:8080`**. Default `application.yml` uses the **same Neon PostgreSQL** URL, user, and password as [`yiurenma/workflow`](https://github.com/yiurenma/workflow/blob/main/src/main/resources/application.yml). Override with `SPRING_DATASOURCE_*` or a local `application-local.yml` when needed.
 
+**Same machine as [workflow-operation-api](https://github.com/yiurenma/workflow-operation-api)?** Both default to port **8080**. Run one service on another port (see the Operation README example, e.g. Online on **8081**) and point **workflow-ui** at the matching `VITE_*_API_BASE` values.
+
 ### Confirm startup
 
 1. Wait for **`Started WorkflowOnlineApplication`** and Tomcat on port **8080**.
