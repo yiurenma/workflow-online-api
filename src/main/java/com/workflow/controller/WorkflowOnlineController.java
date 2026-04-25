@@ -35,11 +35,14 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 import static com.workflow.common.utils.HTTPConstant.CONTENT_TYPE;
 
@@ -112,7 +115,7 @@ public class WorkflowOnlineController {
             value = {"/workflow"},
             consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE}
     )
-    public ResponseEntity<Void> postWorkflow(
+    public Object postWorkflow(
 
             @RequestHeader("Content-Type")
             @Parameter(
@@ -185,6 +188,9 @@ public class WorkflowOnlineController {
                             """)
             Long retryOriginWorkflowRecordId,
 
+            @RequestHeader(value = "X-Workflow-Stream", required = false, defaultValue = "false")
+            String xWorkflowStream,
+
             @RequestBody(
                     required = false
             )
@@ -237,10 +243,38 @@ public class WorkflowOnlineController {
             record.setWorkflowTransactionDetails(secureData.encrypt(JSONObject.parseObject(om.writeValueAsString(runtimePayload)).toString()));
             record = workflowRecordService.save(record);
 
-            if (settings.get(0).isAsyncMode()) {
-                workflowDispatchService.dispatchFromPersistedRecord(record, runtimePayload);
+            boolean sseMode = "true".equalsIgnoreCase(xWorkflowStream);
+
+            if (sseMode) {
+                SseEmitter emitter = new SseEmitter(300_000L);
+                ObjectMapper sseOm = new JacksonConfiguration().objectMapper();
+                Consumer<WorkflowRecord> onSave = savedRecord -> {
+                    try {
+                        emitter.send(SseEmitter.event()
+                                .name("runtime")
+                                .data(sseOm.writeValueAsString(savedRecord)));
+                    } catch (Exception ex) {
+                        log.warn("SSE emit error", ex);
+                    }
+                };
+                final WorkflowRecord finalRecord = record;
+                final WorkflowRuntimePayload finalPayload = runtimePayload;
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        workflowDispatchService.dispatchFromPersistedRecordSync(finalRecord, finalPayload, onSave);
+                        emitter.complete();
+                    } catch (Exception e) {
+                        emitter.completeWithError(e);
+                    }
+                });
+                return emitter;
             } else {
-                workflowDispatchService.dispatchFromPersistedRecordSync(record, runtimePayload);
+                if (settings.get(0).isAsyncMode()) {
+                    workflowDispatchService.dispatchFromPersistedRecord(record, runtimePayload);
+                } else {
+                    workflowDispatchService.dispatchFromPersistedRecordSync(record, runtimePayload);
+                }
+                return ResponseEntity.ok().header(CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE).build();
             }
         } else {
             throw BaseErrorException.withErrorCodeAndErrorDetails(
@@ -248,7 +282,5 @@ public class WorkflowOnlineController {
                     ErrorCode.ERROR_MAPPING.get(ErrorCode.M0001)
             );
         }
-
-        return ResponseEntity.ok().header(CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE).build();
     }
 }

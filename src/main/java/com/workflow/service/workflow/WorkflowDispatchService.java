@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 
 import static com.workflow.common.object.Type.*;
 
@@ -57,18 +58,29 @@ public class WorkflowDispatchService {
     public void dispatchFromPersistedRecordSync(WorkflowRecord executionRecord,
                                                 WorkflowRuntimePayload runtimePayload)
             throws IOException, ClassNotFoundException {
-        runDispatchPipeline(executionRecord, runtimePayload);
+        runDispatchPipeline(executionRecord, runtimePayload, null);
+    }
+
+    /**
+     * Synchronous dispatch with optional SSE callback — each save-point invokes {@code onRecordSaved}.
+     */
+    public void dispatchFromPersistedRecordSync(WorkflowRecord executionRecord,
+                                                WorkflowRuntimePayload runtimePayload,
+                                                Consumer<WorkflowRecord> onRecordSaved)
+            throws IOException, ClassNotFoundException {
+        runDispatchPipeline(executionRecord, runtimePayload, onRecordSaved);
     }
 
     @Async
     public void dispatchFromPersistedRecord(WorkflowRecord executionRecord,
                                             WorkflowRuntimePayload runtimePayload)
             throws IOException, ClassNotFoundException {
-        runDispatchPipeline(executionRecord, runtimePayload);
+        runDispatchPipeline(executionRecord, runtimePayload, null);
     }
 
     private void runDispatchPipeline(WorkflowRecord executionRecord,
-                                     WorkflowRuntimePayload runtimePayload)
+                                     WorkflowRuntimePayload runtimePayload,
+                                     Consumer<WorkflowRecord> onRecordSaved)
             throws IOException, ClassNotFoundException {
         List<WorkflowEntityAndLinkingIdMapping> entityLinks =
                 workflowRuleAndTypeService.findEntityLinkingMappingsBySettingId(runtimePayload.getWorkflowEntitySetting().getId());
@@ -121,18 +133,29 @@ public class WorkflowDispatchService {
         if (!executionRecord.getOverallStatus().equals(WorkflowRunStatus.GI_FAIL.toString())) {
             executionRecord.setOverallStatus(WorkflowRunStatus.GI_SUCCESS.toString());
         }
-        workflowRecordService.save(executionRecord);
+        WorkflowRecord savedRecord = workflowRecordService.save(executionRecord);
+        if (onRecordSaved != null) {
+            onRecordSaved.accept(savedRecord);
+        }
 
         if (dispatchChannelsAsync) {
-            dispatchOutboundChannelsAsync(runtimePayload, executionRecord, outboundBindingsByOrder);
+            dispatchOutboundChannelsAsync(runtimePayload, executionRecord, outboundBindingsByOrder, onRecordSaved);
         } else {
-            dispatchOutboundChannelsSync(runtimePayload, executionRecord, outboundBindingsByOrder);
+            dispatchOutboundChannelsSync(runtimePayload, executionRecord, outboundBindingsByOrder, onRecordSaved);
         }
     }
 
     public void dispatchOutboundChannelsAsync(WorkflowRuntimePayload runtimePayload,
                                               WorkflowRecord executionRecord,
                                               MultivaluedMap<Integer, List<WorkflowRuleAndType>> outboundBindingsByOrder)
+            throws JsonProcessingException, ClassNotFoundException {
+        dispatchOutboundChannelsAsync(runtimePayload, executionRecord, outboundBindingsByOrder, null);
+    }
+
+    public void dispatchOutboundChannelsAsync(WorkflowRuntimePayload runtimePayload,
+                                              WorkflowRecord executionRecord,
+                                              MultivaluedMap<Integer, List<WorkflowRuleAndType>> outboundBindingsByOrder,
+                                              Consumer<WorkflowRecord> onRecordSaved)
             throws JsonProcessingException, ClassNotFoundException {
         List<Integer> keys = new ArrayList<>(outboundBindingsByOrder.keySet());
         Collections.sort(keys);
@@ -155,7 +178,7 @@ public class WorkflowDispatchService {
                     .join();
             for (JSONObject branchResult : branchResults) {
                 if (ObjectUtils.isNotEmpty(branchResult)) {
-                    mergeBranchResultIntoRecord(executionRecord, branchResult);
+                    mergeBranchResultIntoRecord(executionRecord, branchResult, onRecordSaved);
                 }
             }
         }
@@ -164,6 +187,14 @@ public class WorkflowDispatchService {
     public void dispatchOutboundChannelsSync(WorkflowRuntimePayload runtimePayload,
                                              WorkflowRecord executionRecord,
                                              MultivaluedMap<Integer, List<WorkflowRuleAndType>> outboundBindingsByOrder)
+            throws JsonProcessingException, ClassNotFoundException {
+        dispatchOutboundChannelsSync(runtimePayload, executionRecord, outboundBindingsByOrder, null);
+    }
+
+    public void dispatchOutboundChannelsSync(WorkflowRuntimePayload runtimePayload,
+                                             WorkflowRecord executionRecord,
+                                             MultivaluedMap<Integer, List<WorkflowRuleAndType>> outboundBindingsByOrder,
+                                             Consumer<WorkflowRecord> onRecordSaved)
             throws JsonProcessingException, ClassNotFoundException {
         List<Integer> keys = new ArrayList<>(outboundBindingsByOrder.keySet());
         Collections.sort(keys);
@@ -176,13 +207,19 @@ public class WorkflowDispatchService {
             }
             for (JSONObject branchResult : branchResults) {
                 if (ObjectUtils.isNotEmpty(branchResult)) {
-                    mergeBranchResultIntoRecord(executionRecord, branchResult);
+                    mergeBranchResultIntoRecord(executionRecord, branchResult, onRecordSaved);
                 }
             }
         }
     }
 
     private void mergeBranchResultIntoRecord(WorkflowRecord parentRecord, JSONObject branchResult)
+            throws JsonProcessingException {
+        mergeBranchResultIntoRecord(parentRecord, branchResult, null);
+    }
+
+    private void mergeBranchResultIntoRecord(WorkflowRecord parentRecord, JSONObject branchResult,
+                                             Consumer<WorkflowRecord> onRecordSaved)
             throws JsonProcessingException {
         ObjectMapper om = new JacksonConfiguration().objectMapper();
         WorkflowRecord child = WorkflowRecord.builder().build();
@@ -193,7 +230,10 @@ public class WorkflowDispatchService {
         child = om.convertValue(
                 om.readerForUpdating(om.readTree(JSONObject.parseObject(om.writeValueAsString(child)).toString()))
                         .readValue(branchResult.toString()), WorkflowRecord.class);
-        workflowRecordService.save(child);
+        WorkflowRecord savedChild = workflowRecordService.save(child);
+        if (onRecordSaved != null) {
+            onRecordSaved.accept(savedChild);
+        }
         workflowRecordService.delete(parentRecord);
     }
 
