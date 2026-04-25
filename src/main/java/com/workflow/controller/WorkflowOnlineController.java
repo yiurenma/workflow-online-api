@@ -35,6 +35,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -112,7 +113,19 @@ public class WorkflowOnlineController {
             value = {"/workflow"},
             consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE}
     )
-    public ResponseEntity<Void> postWorkflow(
+    public Object postWorkflow(
+
+            @RequestHeader(value = "X-Stream-Mode", required = false)
+            @Parameter(
+                    example = "sse",
+                    required = false,
+                    description = """
+                            Set to 'sse' to receive a Server-Sent Events stream. After each pipeline phase
+                            completes and is persisted to DB, a 'runtime' SSE event is pushed containing the
+                            DB-readable record fields. Omit for standard single HTTP response (default unchanged).
+                            """
+            )
+            String streamMode,
 
             @RequestHeader("Content-Type")
             @Parameter(
@@ -237,7 +250,11 @@ public class WorkflowOnlineController {
             record.setWorkflowTransactionDetails(secureData.encrypt(JSONObject.parseObject(om.writeValueAsString(runtimePayload)).toString()));
             record = workflowRecordService.save(record);
 
-            if (settings.get(0).isAsyncMode()) {
+            if ("sse".equalsIgnoreCase(streamMode)) {
+                SseEmitter emitter = new SseEmitter(60_000L);
+                workflowDispatchService.dispatchWithSse(record, runtimePayload, emitter);
+                return emitter;
+            } else if (settings.get(0).isAsyncMode()) {
                 workflowDispatchService.dispatchFromPersistedRecord(record, runtimePayload);
             } else {
                 workflowDispatchService.dispatchFromPersistedRecordSync(record, runtimePayload);
