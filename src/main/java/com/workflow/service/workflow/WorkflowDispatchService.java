@@ -23,11 +23,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 import static com.workflow.common.object.Type.*;
@@ -57,18 +56,36 @@ public class WorkflowDispatchService {
     public void dispatchFromPersistedRecordSync(WorkflowRecord executionRecord,
                                                 WorkflowRuntimePayload runtimePayload)
             throws IOException, ClassNotFoundException {
-        runDispatchPipeline(executionRecord, runtimePayload);
+        runDispatchPipeline(executionRecord, runtimePayload, null);
     }
 
     @Async
     public void dispatchFromPersistedRecord(WorkflowRecord executionRecord,
                                             WorkflowRuntimePayload runtimePayload)
             throws IOException, ClassNotFoundException {
-        runDispatchPipeline(executionRecord, runtimePayload);
+        runDispatchPipeline(executionRecord, runtimePayload, null);
+    }
+
+    /**
+     * SSE-enabled synchronous dispatch. After each enrichment and dispatch step the saved
+     * WorkflowRecord is emitted as a "step" SSE event. Completes (or errors) the emitter when done.
+     * Catches all exceptions internally so it is safe to call from a CompletableFuture lambda.
+     */
+    public void dispatchFromPersistedRecordSyncWithEmitter(WorkflowRecord executionRecord,
+                                                           WorkflowRuntimePayload runtimePayload,
+                                                           SseEmitter emitter) {
+        try {
+            runDispatchPipeline(executionRecord, runtimePayload, emitter);
+            emitter.complete();
+        } catch (Exception e) {
+            log.error("SSE dispatch pipeline error: {}", e.toString());
+            try { emitter.completeWithError(e); } catch (Exception ignored) {}
+        }
     }
 
     private void runDispatchPipeline(WorkflowRecord executionRecord,
-                                     WorkflowRuntimePayload runtimePayload)
+                                     WorkflowRuntimePayload runtimePayload,
+                                     SseEmitter emitter)
             throws IOException, ClassNotFoundException {
         List<WorkflowEntityAndLinkingIdMapping> entityLinks =
                 workflowRuleAndTypeService.findEntityLinkingMappingsBySettingId(runtimePayload.getWorkflowEntitySetting().getId());
@@ -121,18 +138,20 @@ public class WorkflowDispatchService {
         if (!executionRecord.getOverallStatus().equals(WorkflowRunStatus.GI_FAIL.toString())) {
             executionRecord.setOverallStatus(WorkflowRunStatus.GI_SUCCESS.toString());
         }
-        workflowRecordService.save(executionRecord);
+        executionRecord = workflowRecordService.save(executionRecord);
+        emitStepEvent(emitter, "enrichment", executionRecord);
 
         if (dispatchChannelsAsync) {
-            dispatchOutboundChannelsAsync(runtimePayload, executionRecord, outboundBindingsByOrder);
+            dispatchOutboundChannelsAsync(runtimePayload, executionRecord, outboundBindingsByOrder, emitter);
         } else {
-            dispatchOutboundChannelsSync(runtimePayload, executionRecord, outboundBindingsByOrder);
+            dispatchOutboundChannelsSync(runtimePayload, executionRecord, outboundBindingsByOrder, emitter);
         }
     }
 
     public void dispatchOutboundChannelsAsync(WorkflowRuntimePayload runtimePayload,
                                               WorkflowRecord executionRecord,
-                                              MultivaluedMap<Integer, List<WorkflowRuleAndType>> outboundBindingsByOrder)
+                                              MultivaluedMap<Integer, List<WorkflowRuleAndType>> outboundBindingsByOrder,
+                                              SseEmitter emitter)
             throws JsonProcessingException, ClassNotFoundException {
         List<Integer> keys = new ArrayList<>(outboundBindingsByOrder.keySet());
         Collections.sort(keys);
@@ -155,7 +174,8 @@ public class WorkflowDispatchService {
                     .join();
             for (JSONObject branchResult : branchResults) {
                 if (ObjectUtils.isNotEmpty(branchResult)) {
-                    mergeBranchResultIntoRecord(executionRecord, branchResult);
+                    WorkflowRecord child = mergeBranchResultIntoRecord(executionRecord, branchResult);
+                    emitStepEvent(emitter, "dispatch", child);
                 }
             }
         }
@@ -163,7 +183,8 @@ public class WorkflowDispatchService {
 
     public void dispatchOutboundChannelsSync(WorkflowRuntimePayload runtimePayload,
                                              WorkflowRecord executionRecord,
-                                             MultivaluedMap<Integer, List<WorkflowRuleAndType>> outboundBindingsByOrder)
+                                             MultivaluedMap<Integer, List<WorkflowRuleAndType>> outboundBindingsByOrder,
+                                             SseEmitter emitter)
             throws JsonProcessingException, ClassNotFoundException {
         List<Integer> keys = new ArrayList<>(outboundBindingsByOrder.keySet());
         Collections.sort(keys);
@@ -176,13 +197,14 @@ public class WorkflowDispatchService {
             }
             for (JSONObject branchResult : branchResults) {
                 if (ObjectUtils.isNotEmpty(branchResult)) {
-                    mergeBranchResultIntoRecord(executionRecord, branchResult);
+                    WorkflowRecord child = mergeBranchResultIntoRecord(executionRecord, branchResult);
+                    emitStepEvent(emitter, "dispatch", child);
                 }
             }
         }
     }
 
-    private void mergeBranchResultIntoRecord(WorkflowRecord parentRecord, JSONObject branchResult)
+    private WorkflowRecord mergeBranchResultIntoRecord(WorkflowRecord parentRecord, JSONObject branchResult)
             throws JsonProcessingException {
         ObjectMapper om = new JacksonConfiguration().objectMapper();
         WorkflowRecord child = WorkflowRecord.builder().build();
@@ -193,8 +215,28 @@ public class WorkflowDispatchService {
         child = om.convertValue(
                 om.readerForUpdating(om.readTree(JSONObject.parseObject(om.writeValueAsString(child)).toString()))
                         .readValue(branchResult.toString()), WorkflowRecord.class);
-        workflowRecordService.save(child);
+        WorkflowRecord saved = workflowRecordService.save(child);
         workflowRecordService.delete(parentRecord);
+        return saved;
+    }
+
+    private void emitStepEvent(SseEmitter emitter, String phase, WorkflowRecord record) {
+        if (emitter == null) return;
+        try {
+            ObjectMapper om = new JacksonConfiguration().objectMapper();
+            Map<String, Object> event = new LinkedHashMap<>();
+            event.put("phase", phase);
+            event.put("recordId", record.getId());
+            event.put("applicationName", record.getApplicationName());
+            event.put("status", record.getOverallStatus());
+            event.put("transactionConfirmationNumber", record.getTransactionConfirmationNumber());
+            event.put("trackingNumber", record.getTrackingNumber());
+            event.put("workflowProvider", record.getWorkflowProvider());
+            event.put("timestamp", new Date());
+            emitter.send(SseEmitter.event().name("step").data(om.writeValueAsString(event)));
+        } catch (Exception e) {
+            log.warn("Failed to emit SSE step event: {}", e.getMessage());
+        }
     }
 
     public static boolean ruleAndTypesFullyMatch(Object payloadObject, List<WorkflowRuleAndType> bindings) {

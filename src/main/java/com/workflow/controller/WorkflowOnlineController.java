@@ -35,11 +35,13 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import static com.workflow.common.utils.HTTPConstant.CONTENT_TYPE;
 
@@ -71,6 +73,7 @@ public class WorkflowOnlineController {
 
     @Operation(
             summary = "Accept a workflow dispatch request (JSON or XML body) and run the configured async pipeline",
+            description = "When the X-Stream: true request header is present the response uses Server-Sent Events (text/event-stream) and pushes a 'step' event after each pipeline step completes. Without that header the behaviour is the standard single HTTP 200 response.",
             responses = {
                     @ApiResponse(
                             responseCode = "200",
@@ -112,7 +115,7 @@ public class WorkflowOnlineController {
             value = {"/workflow"},
             consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE}
     )
-    public ResponseEntity<Void> postWorkflow(
+    public Object postWorkflow(
 
             @RequestHeader("Content-Type")
             @Parameter(
@@ -185,6 +188,18 @@ public class WorkflowOnlineController {
                             """)
             Long retryOriginWorkflowRecordId,
 
+            @RequestHeader(value = "X-Stream", required = false, defaultValue = "false")
+            @Parameter(
+                    example = "true",
+                    required = false,
+                    description = """
+                            When set to "true" the response will be a Server-Sent Events stream.
+                            A "step" event is emitted after each pipeline step completes.
+                            Omitting this header (or setting it to any value other than "true") retains
+                            the default single-response HTTP 200 behaviour.
+                            """)
+            String xStream,
+
             @RequestBody(
                     required = false
             )
@@ -236,6 +251,16 @@ public class WorkflowOnlineController {
             runtimePayload.setRequestSearchKey(confirmationNumber);
             record.setWorkflowTransactionDetails(secureData.encrypt(JSONObject.parseObject(om.writeValueAsString(runtimePayload)).toString()));
             record = workflowRecordService.save(record);
+
+            if ("true".equalsIgnoreCase(xStream)) {
+                SseEmitter emitter = new SseEmitter(300_000L);
+                final WorkflowRecord finalRecord = record;
+                final WorkflowRuntimePayload finalPayload = runtimePayload;
+                CompletableFuture.runAsync(() ->
+                    workflowDispatchService.dispatchFromPersistedRecordSyncWithEmitter(finalRecord, finalPayload, emitter)
+                );
+                return emitter;
+            }
 
             if (settings.get(0).isAsyncMode()) {
                 workflowDispatchService.dispatchFromPersistedRecord(record, runtimePayload);
