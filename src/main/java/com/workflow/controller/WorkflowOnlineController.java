@@ -35,6 +35,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -250,5 +251,122 @@ public class WorkflowOnlineController {
         }
 
         return ResponseEntity.ok().header(CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE).build();
+    }
+
+    /**
+     * SSE variant of {@link #postWorkflow}: identical validation and dispatch but streams
+     * a {@code text/event-stream} response.  Each SSE event carries the just-saved
+     * {@link WorkflowRecord} as JSON after the enrichment phase and after every dispatch
+     * step that writes to the DB.
+     *
+     * <p>Opt-in: clients must send {@code X-Stream-Response: true}.  All other callers
+     * receive the plain 200 response from the sibling mapping and are completely unaffected.
+     */
+    @PostMapping(
+            value = {"/workflow"},
+            headers = "X-Stream-Response=true",
+            consumes = {MediaType.APPLICATION_JSON_VALUE, MediaType.APPLICATION_XML_VALUE},
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE
+    )
+    public SseEmitter postWorkflowStream(
+            @RequestHeader("Content-Type") @NotNull MediaType contentType,
+            @Valid @RequestHeader(AppConstant.requestId) @NotNull String requestId,
+            @RequestParam(required = true) @NotNull String confirmationNumber,
+            @RequestParam(required = true) @NotNull String applicationName,
+            @RequestParam(name = "channelKind", required = false) WorkflowChannelKind channelKind,
+            @RequestParam(required = false, defaultValue = "false") Boolean isSelfRequest,
+            @RequestParam(required = false) Long retryOriginWorkflowRecordId,
+            @RequestBody(required = false) @Valid String requestPayload
+    ) throws IOException, ClassNotFoundException {
+        ObjectMapper om = new JacksonConfiguration().objectMapper();
+        String body = requestPayload;
+        if (MediaType.APPLICATION_XML_VALUE.equalsIgnoreCase(contentType.toString())
+                && StringUtils.isNotEmpty(body)) {
+            body = XML.toJSONObject(body).toString();
+        }
+        if (!isSelfRequest && workflowRecordRepository.findIdsByRequestCorrelationIdAndApplicationName(requestId, applicationName).size() > 0) {
+            throw BaseErrorException.withErrorCodeAndErrorDetails(
+                    ErrorCode.M0002,
+                    ErrorCode.ERROR_MAPPING.get(ErrorCode.M0002) + requestId
+            );
+        }
+        if (isSelfRequest
+                && retryOriginWorkflowRecordId != null
+                && workflowRecordRepository.findIdsByOriginWorkflowRecordId(retryOriginWorkflowRecordId).size() > 0) {
+            throw BaseErrorException.withErrorCodeAndErrorDetails(
+                    ErrorCode.M0004,
+                    ErrorCode.ERROR_MAPPING.get(ErrorCode.M0004) + retryOriginWorkflowRecordId
+            );
+        }
+        List<WorkflowEntitySetting> settings = workflowEntitySettingRepository.findAllByApplicationName(applicationName);
+        if (settings.size() != 1) {
+            throw BaseErrorException.withErrorCodeAndErrorDetails(
+                    ErrorCode.M0001,
+                    ErrorCode.ERROR_MAPPING.get(ErrorCode.M0001)
+            );
+        }
+
+        WorkflowRecord record = WorkflowRecord.builder().build();
+        record.setApplicationName(applicationName);
+        record.setTransactionConfirmationNumber(confirmationNumber);
+        record.setRequestCorrelationId(requestId);
+        record.setOverallStatus(WorkflowRunStatus.INITIATION.toString());
+        record.setOriginWorkflowRecordId(retryOriginWorkflowRecordId);
+
+        WorkflowRuntimePayload runtimePayload = new WorkflowRuntimePayload();
+        runtimePayload.setOriginRequestId(requestId);
+        runtimePayload.setWorkflowInstanceId(UUID.randomUUID().toString());
+        runtimePayload.setWorkflowEntitySetting(settings.get(0));
+        runtimePayload.setChannelKind(channelKind);
+        runtimePayload.setIngressBody(JSONObject.parseObject(body));
+        runtimePayload.setOriginWorkflowRecordId(retryOriginWorkflowRecordId);
+        runtimePayload.setRequestLocalhostName(InetAddress.getLoopbackAddress().getHostName());
+        runtimePayload.setRequestLocalhostPort(aPort.toString());
+        runtimePayload.setRequestSearchKey(confirmationNumber);
+        record.setWorkflowTransactionDetails(secureData.encrypt(JSONObject.parseObject(om.writeValueAsString(runtimePayload)).toString()));
+        final WorkflowRecord initialRecord = workflowRecordService.save(record);
+
+        SseEmitter emitter = new SseEmitter(120_000L);
+
+        final String finalBody = body;
+        Thread.ofVirtual().start(() -> {
+            try {
+                ObjectMapper threadOm = new JacksonConfiguration().objectMapper();
+                WorkflowRuntimePayload threadPayload = new WorkflowRuntimePayload();
+                threadPayload.setOriginRequestId(requestId);
+                threadPayload.setWorkflowInstanceId(runtimePayload.getWorkflowInstanceId());
+                threadPayload.setWorkflowEntitySetting(settings.get(0));
+                threadPayload.setChannelKind(channelKind);
+                threadPayload.setIngressBody(JSONObject.parseObject(finalBody));
+                threadPayload.setOriginWorkflowRecordId(retryOriginWorkflowRecordId);
+                threadPayload.setRequestLocalhostName(InetAddress.getLoopbackAddress().getHostName());
+                threadPayload.setRequestLocalhostPort(aPort.toString());
+                threadPayload.setRequestSearchKey(confirmationNumber);
+
+                workflowDispatchService.dispatchFromPersistedRecordSyncWithEvents(
+                        initialRecord,
+                        threadPayload,
+                        savedRecord -> {
+                            try {
+                                String eventJson = threadOm.writeValueAsString(savedRecord);
+                                emitter.send(SseEmitter.event()
+                                        .name("step_complete")
+                                        .data(eventJson, MediaType.APPLICATION_JSON));
+                            } catch (Exception e) {
+                                log.warn("SSE send failed for record {}: {}", savedRecord.getId(), e.getMessage());
+                            }
+                        }
+                );
+                emitter.complete();
+            } catch (Exception e) {
+                log.error("SSE dispatch error: {}", e.getMessage(), e);
+                try {
+                    emitter.send(SseEmitter.event().name("error").data(e.getMessage()));
+                } catch (Exception ignored) {}
+                emitter.completeWithError(e);
+            }
+        });
+
+        return emitter;
     }
 }
